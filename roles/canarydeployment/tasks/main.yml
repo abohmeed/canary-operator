@@ -1,0 +1,156 @@
+---
+- name: create main deployment
+  kubernetes.core.k8s:
+    definition:
+      kind: Deployment
+      apiVersion: apps/v1
+      metadata:
+        name: '{{ ansible_operator_meta.name }}-main'
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      spec:
+        replicas: "{{ main_size }}"
+        selector:
+          matchLabels:
+            app: "{{app_name}}"
+        template:
+          metadata:
+            labels:
+              app: "{{app_name}}"
+          spec:
+            containers:
+            - name: "{{app_name}}"
+              image: "{{app_name}}:{{main_tag}}"
+              ports:
+                - containerPort: "{{app_port}}"
+- name: create canary deployment
+  kubernetes.core.k8s:
+    definition:
+      kind: Deployment
+      apiVersion: apps/v1
+      metadata:
+        name: '{{ ansible_operator_meta.name }}-canary'
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      spec:
+        replicas: "{{ canary_size }}"
+        selector:
+          matchLabels:
+            app: "{{app_name}}"
+        template:
+          metadata:
+            labels:
+              app: "{{app_name}}"
+          spec:
+            containers:
+            - name: "{{app_name}}"
+              image: "{{app_name}}:{{canary_tag}}"
+              ports:
+                - containerPort: "{{app_port}}"
+- name: create the service
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: '{{ ansible_operator_meta.name }}-service'
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      spec:
+        selector:
+          app: "{{app_name}}"
+        ports:
+          - protocol: TCP
+            port: "{{service_port}}"
+            targetPort: "{{app_port}}"
+        type: ClusterIP
+- name: create a service account for the CronJob
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: cronjob-access-sa
+        namespace: '{{ ansible_operator_meta.namespace }}'
+- name: create a role for the CronJob
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: cronjob-access-role
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      rules:
+      - apiGroups: ["batch"]
+        resources: ["cronjobs"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      - apiGroups:
+        - "{{domain}}"
+        resources:
+          - "{{crd_kind | lower}}s"
+        verbs:
+          - get
+          - list
+          - patch
+          - update
+- name: create a RoleBinding for the CronJob
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: cronjob-access-rolebinding
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      subjects:
+      - kind: ServiceAccount
+        name: cronjob-access-sa
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      roleRef:
+        kind: Role
+        name: cronjob-access-role
+        apiGroup: rbac.authorization.k8s.io
+- name: create the CronJob
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: cronjob-scaler
+        namespace: '{{ ansible_operator_meta.namespace }}'
+      spec:
+        schedule: "{{cron_schedule}}"
+        suspended: "{{cron_disable}}"
+        jobTemplate:
+          spec:
+            template:
+              spec:
+                serviceAccountName: cronjob-access-sa
+                containers:
+                - name: scaler
+                  image: bitnami/kubectl
+                  env:
+                  - name: LIMIT
+                    value: "{{replica_limit | string}}"
+                  - name: NAMESPACE
+                    value: '{{ ansible_operator_meta.namespace }}'
+                  - name: CRD_KIND
+                    value: "{{crd_kind}}"
+                  - name: CRD_NAME
+                    value: "{{crd_name}}"
+                  - name: INCREMENT
+                    value: "{{increment | string}}"
+                  command: ["/bin/bash"]
+                  args:
+                  - "-c"
+                  - |
+                    set -x
+                    current_main_size=$(kubectl -n $NAMESPACE get $CRD_KIND/$CRD_NAME -o jsonpath='{.spec.main_size}')
+                    current_canary_size=$(kubectl -n $NAMESPACE get $CRD_KIND/$CRD_NAME -o jsonpath='{.spec.canary_size}')
+                    new_canary_size=$LIMIT
+                    new_main_size=0
+                    if (( current_main_size > 0 )); then
+                      new_main_size=$(( current_main_size - INCREMENT ))
+                    fi
+                    if (( current_canary_size < $LIMIT )); then
+                      new_canary_size=$(( current_canary_size + INCREMENT ))
+                    fi
+                    echo new canary size $new_canary_size and new main_size is $new_main_size
+                    kubectl -n $NAMESPACE patch $CRD_KIND/$CRD_NAME --type=json -p='[{"op": "replace", "path": "/spec/main_size", "value": '"$new_main_size"'},{"op": "replace", "path": "/spec/canary_size", "value": '"$new_canary_size"'}]'
+                restartPolicy: Never

@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: manifest-patcher
+spec:
+  schedule: "*/1 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: controller-manager
+          containers:
+          - name: manifest-patcher
+            image: bitnami/kubectl
+            env:
+            - name: MAIN_SIZE
+              value: "10"  # Replace with the desired initial main_size value
+            command: ["/bin/sh"]
+            args:
+            - "-c"
+            - |
+              current_main_size=$(kubectl -n default get CanaryDeployment/nginx-canary -o jsonpath='{.spec.main_size}')
+              current_canary_size=$(kubectl -n default get CanaryDeployment/nginx-canary -o jsonpath='{.spec.canary_size}')
+              new_canary_size=0
+              new_main_size=0
+              if (( current_main_size > 0 )); then
+                new_main_size=$(($current_main_size - 1))
+              fi
+              if (( current_canary_size < 10 )); then
+                new_canary_size=$(( $current_canary_size + 1 ))
+              fi
+              echo new canary size $new_canary_size and new main_size is $new_main_size
+              kubectl -n default patch CanaryDeployment/nginx-canary --type=json -p='[{"op": "replace", "path": "/spec/main_size", "value": '"$new_main_size"'},{"op": "replace", "path": "/spec/canary_size", "value": '"$new_canary_size"'}]'
+          restartPolicy: Never

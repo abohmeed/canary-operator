@@ -1,0 +1,27 @@
+apiVersion: canary.example.com/v1alpha1
+kind: CanaryDeployment
+metadata:
+  labels:
+    app.kubernetes.io/name: canarydeployment
+    app.kubernetes.io/instance: canarydeployment-sample
+    app.kubernetes.io/part-of: canary-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: canary-operator
+  name: nginx-canary
+spec:
+  # TODO(user): Add fields here
+  main_size: 10
+  main_tag: "latest"
+  app_name: "nginx"
+  app_image: "nginx"
+  app_port: 80
+  canary_size: 0
+  canary_tag: "1.24.0"
+  service_port: 80
+  crd_kind: CanaryDeployment
+  crd_name: nginx-canary
+  cron_schedule: "*/1 * * * *"
+  increment: 1
+  domain: canary.example.com
+  replica_limit: 10
+  cron_disable: false

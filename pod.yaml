@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: manifest-pod
+  namespace: canary-operator-system
+spec:
+  serviceAccount: canary-operator-controller-manager
+  containers:
+  - name: manifest-container
+    image: bitnami/kubectl
+    command: ["/bin/sh"]
+    args:
+    - -c
+    - sleep 100000
+    env:
+    - name: MAIN_SIZE
+      value: "10"  # Replace with the desired initial main_size value
+

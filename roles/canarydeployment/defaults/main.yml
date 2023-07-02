@@ -1,0 +1,9 @@
+---
+# defaults file for CanaryDeployment
+# mainDeployment:
+#   size: 10
+#   tag: latest
+# app:
+#   name: nginx
+#   image: nginx
+#   port: 80
