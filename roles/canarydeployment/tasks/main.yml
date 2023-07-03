@@ -19,7 +19,7 @@
           spec:
             containers:
             - name: "{{app_name}}"
-              image: "{{app_name}}:{{main_tag}}"
+              image: "{{app_image}}:{{main_tag}}"
               ports:
                 - containerPort: "{{app_port}}"
 - name: create canary deployment
@@ -42,7 +42,7 @@
           spec:
             containers:
             - name: "{{app_name}}"
-              image: "{{app_name}}:{{canary_tag}}"
+              image: "{{app_image}}:{{canary_tag}}"
               ports:
                 - containerPort: "{{app_port}}"
 - name: create the service
